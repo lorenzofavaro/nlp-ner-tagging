@@ -1,46 +1,101 @@
+\documentclass[a4paper,11pt,notitlepage]{report}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[italian]{babel}
+\usepackage{mathpazo}
+\usepackage{amsmath}
+\usepackage{alltt}
+\usepackage{outlines}
+\usepackage[margin=3cm]{geometry}
+\usepackage{hyperref}
+
+\title{Relazione Progetto TLN: Mazzei}
+\author{Andrea Senese, Lorenzo Favaro, Lorenzo Vercelli}
+\date{25 aprile 2022 \\ \small Revisione: novembre 2026}
+
+\begin{document}
+\maketitle
+\tableofcontents
+
 \chapter{Fase di Learning}
-La fase di learning si suddivide a sua volta in due sotto-fasi: la prima consiste nel costruire la matrice di transizione per calcolare le probabilità di transizione tra due tag qualsiasi, mentre nella seconda viene costruita la matrice di emissione contenente le singole probabilità di emissione di ogni parola dato l'insieme dei tag. Agli output di ciascuna di queste fasi è stata infine applicata la funziona logaritmica per migliorare le performance.
+La fase di learning si suddivide a sua volta in due sotto-fasi: la prima consiste nel costruire la matrice di transizione per calcolare le probabilità di transizione tra due tag qualsiasi, mentre nella seconda viene costruita la matrice di emissione contenente le singole probabilità di emissione di ogni parola dato l'insieme dei tag. Agli output di ciascuna di queste fasi è stata infine applicata la funzione logaritmica, per evitare l'underflow dovuto al prodotto di molte probabilità piccole. Per evitare il logaritmo di zero, prima di applicarlo viene sommato a ogni probabilità il più piccolo numero positivo rappresentabile (\texttt{np.finfo(float).tiny}).
 
 \section{Matrice di transizione}
 Per costruire ogni probabilità di transizione abbiamo utilizzato la libreria \texttt{conllu}. Tramite essa abbiamo effettuato il parsing delle frasi del training set, le quali vengono trasformate in liste di token, ossia dei dizionari contenenti le chiavi \textit{form} (per indicare la parola) e \textit{lemma} (per indicare il NER-tag associato).
 
-Dati due tag sequenziali $P(t_i)$ e $P(t_{i-1})$, abbiamo creato i dizionari \texttt{tag\_counter} per tenere il conto delle occorrenze di ogni tag (ossia $C(t_{i-1})$) e \texttt{transition\_counter} per contare le occorrenze della coppia (ossia $C(t_{i-1},t_i)$).
+Dati due tag sequenziali $t_{i-1}$ e $t_i$, abbiamo creato i dizionari \texttt{tag\_counter} per tenere il conto delle occorrenze di ogni tag (ossia $C(t_{i-1})$) e \texttt{transition\_counter} per contare le occorrenze della coppia (ossia $C(t_{i-1},t_i)$).
 Innanzitutto, per ogni frase parsificata contiamo una volta il tag fittizio \textit{START} e la transizione da \textit{START} al primo tag della frase.
 Dopodiché, generiamo tutte le coppie sequenziali fino al penultimo token e incrementiamo di uno i valori delle relative chiavi dei due dizionari. Ad esempio, data la seguente frase:
 \begin{center}
     Paolo\textbackslash \texttt{B-PER} ama\textbackslash \texttt{O} Francesca\textbackslash \texttt{B-PER} dolcemente\textbackslash \texttt{O}
 \end{center}
 le coppie di tag ricavate sono \texttt{[(B-PER,O), (O,B-PER), (B-PER,O)]}.
-Infine, contiamo manualmente l'occorrenza dell'ultimo tag.
+L'ultimo tag della frase non viene conteggiato in \texttt{tag\_counter}, in quanto non ha alcuna transizione uscente: in questo modo il denominatore di ogni probabilità conta solo le occorrenze del tag da cui parte effettivamente una transizione, e ogni riga della matrice somma a 1.
 
-Una volta che i dizionari sono stati popolati, per calcolare la probabilità di transizione $P(t_i \mid t_{i-1})$ abbiamo generato tutte le combinazioni di tag e in corrispondenza della riga \textit{i} e della colonna \textit{i-1} inseriamo il valore \texttt{transition\_counter[($t_i$, $t_{i-1}$)] / tag\_counter[$t_i$]}
+Una volta che i dizionari sono stati popolati, per calcolare la probabilità di transizione $P(t_i \mid t_{i-1})$ abbiamo generato tutte le combinazioni di tag e in corrispondenza della riga $t_{i-1}$ e della colonna $t_i$ inseriamo il valore \texttt{transition\_counter[($t_{i-1}$, $t_i$)] / tag\_counter[$t_{i-1}$]}. La riga \textit{START} costituisce il vettore $\Pi$ delle probabilità iniziali. Di seguito la matrice ottenuta sul training set inglese:
 
 \begin{center}
-    \includegraphics[width=1\linewidth,trim={0cm 0cm 0cm 0cm}, clip]{img/Transition-matrix.pdf}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{|l|l|l|l|l|l|l|l|l|l|}
+\hline
+\textbf{} & \textbf{O} & \textbf{I-LOC} & \textbf{I-MISC} & \textbf{I-ORG} & \textbf{I-PER} & \textbf{B-LOC} & \textbf{B-MISC} & \textbf{B-PER} & \textbf{B-ORG} \\ \hline
+\textbf{START} & 0.92 & 0.00 & 0.00 & 0.00 & 0.00 & 0.02 & 0.01 & 0.04 & 0.01 \\ \hline
+\textbf{O} & 0.92 & 0.00 & 0.00 & 0.00 & 0.00 & 0.03 & 0.02 & 0.02 & 0.01 \\ \hline
+\textbf{I-LOC} & 0.75 & 0.24 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 \\ \hline
+\textbf{I-MISC} & 0.46 & 0.00 & 0.54 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 \\ \hline
+\textbf{I-ORG} & 0.59 & 0.00 & 0.00 & 0.41 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 \\ \hline
+\textbf{I-PER} & 0.88 & 0.00 & 0.00 & 0.00 & 0.12 & 0.00 & 0.00 & 0.00 & 0.00 \\ \hline
+\textbf{B-LOC} & 0.74 & 0.26 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 \\ \hline
+\textbf{B-MISC} & 0.65 & 0.00 & 0.32 & 0.00 & 0.00 & 0.00 & 0.02 & 0.00 & 0.00 \\ \hline
+\textbf{B-PER} & 0.36 & 0.00 & 0.00 & 0.00 & 0.64 & 0.00 & 0.00 & 0.00 & 0.00 \\ \hline
+\textbf{B-ORG} & 0.50 & 0.00 & 0.00 & 0.49 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 \\ \hline
+\end{tabular}
 \end{center}
 
-
 \section{Matrice di emissione}
-La costruzione della matrice di emissione passa attraverso due step principali: il primo consiste nel computare una volta sola le probabilità di emissione per le parole presenti nel training set e il secondo nel costruire la matrice vera a propria per ogni frase del test set, impiegando eventuali strategie di smoothing nel caso in cui una parola non abbia già una probabilità di emissione associata.
+La costruzione della matrice di emissione passa attraverso due step principali: il primo consiste nel computare una volta sola le probabilità di emissione per le parole presenti nel training set e il secondo nel costruire la matrice vera a propria per ogni frase del test set, impiegando eventuali strategie di smoothing nel caso in cui una parola non sia presente nel training set.
 Nel primo step abbiamo utilizzato un nuovo dizionario \texttt{word\_tag\_counter} per contare le occorrenze di ogni coppia ($w_i$,$t_i$) (parola-tag), oltre a quello già utilizzato precedentemente \texttt{tag\_counter}.
 La probabilità di emissione $P(w_i \mid t_i)$ è stata quindi calcolata come \texttt{word\_tag\_counter[($w_i$,$t_i$)] / tag\_counter[$t_i$]}.
 
-Per quanto riguarda il secondo step, abbiamo definito una matrice le cui righe sono i tag e le cui colonne sono le parole delle frasi del test set. Qui utilizziamo l'output dello step precedente per generare tutte le combinazioni di coppie (parola-tag) per produrre le probabilità di emissione da associare agli elementi della matrice. Nel caso in cui la probabilità di emissione associata ad una parola non sia stata computata (in quanto non presente nel training set), la si ottiene utilizzando una delle strategie di smoothing descritte nella prossima sezione.
+Per quanto riguarda il secondo step, abbiamo definito una matrice le cui righe sono i tag e le cui colonne sono le parole delle frasi del test set. Qui utilizziamo l'output dello step precedente per generare tutte le combinazioni di coppie (parola-tag) per produrre le probabilità di emissione da associare agli elementi della matrice. Distinguiamo due casi:
+\begin{outline}
+    \1 se la parola compare nel training set (\texttt{vocabulary}), le viene assegnata la probabilità di emissione calcolata; se la parola non è mai stata osservata con un determinato tag, la probabilità per quel tag è 0;
+    \1 se la parola non compare nel training set, la probabilità di emissione per ogni tag si ottiene utilizzando una delle strategie di smoothing descritte nella prossima sezione.
+\end{outline}
+È importante che lo smoothing venga applicato solo alle parole sconosciute: applicandolo anche alle coppie parola-tag mai osservate di parole note, queste riceverebbero probabilità molto più alte di quelle reali (ad esempio $\frac{1}{9}$ con lo smoothing uniforme), compromettendo la classificazione anche delle parole note.
+
+Di seguito la matrice di emissione (senza smoothing) per una frase del test set inglese:
+
 \begin{center}
-    \includegraphics[width=1\linewidth,trim={0cm 0cm 0cm 0cm}, clip]{img/Emission-matrix.pdf}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{|l|l|l|l|l|l|l|l|l|l|l|l|l|}
+\hline
+\textbf{} & \textbf{She} & \textbf{proceeded} & \textbf{to} & \textbf{the} & \textbf{University} & \textbf{of} & \textbf{the} & \textbf{Philippines} & \textbf{College} & \textbf{of} & \textbf{Law} & \textbf{.} \\ \hline
+\textbf{O} & 0.00 & 0.00 & 0.02 & 0.06 & 0.00 & 0.03 & 0.06 & 0.00 & 0.00 & 0.03 & 0.00 & 0.05 \\ \hline
+\textbf{I-LOC} & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.04 & 0.00 & 0.00 & 0.00 & 0.04 & 0.00 & 0.00 \\ \hline
+\textbf{I-MISC} & 0.00 & 0.00 & 0.01 & 0.03 & 0.00 & 0.05 & 0.03 & 0.00 & 0.00 & 0.05 & 0.00 & 0.00 \\ \hline
+\textbf{I-ORG} & 0.00 & 0.00 & 0.00 & 0.01 & 0.02 & 0.06 & 0.01 & 0.00 & 0.01 & 0.06 & 0.00 & 0.00 \\ \hline
+\textbf{I-PER} & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 \\ \hline
+\textbf{B-LOC} & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 \\ \hline
+\textbf{B-MISC} & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 \\ \hline
+\textbf{B-PER} & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 \\ \hline
+\textbf{B-ORG} & 0.00 & 0.00 & 0.00 & 0.00 & 0.01 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 \\ \hline
+\end{tabular}
 \end{center}
 
 \section{Strategie di smoothing}
-Le strategie di smoothing che abbiamo implementato sono raccolte in una classe enumeratore ``SmoothingStrategy'' utile a specificare quale venga utilizzata al momento dell'esecuzione.
+Le strategie di smoothing che abbiamo implementato sono raccolte in una classe enumeratore ``SmoothingStrategy'' utile a specificare quale venga utilizzata al momento dell'esecuzione. Tutte le strategie si applicano esclusivamente alle parole $w_i$ assenti dal training set.
 In questa sezione ci concentriamo sul descrivere l'ultima strategia di quelle elencate di seguito, in quanto l'implementazione delle altre è immediata.
 
 \begin{outline}[enumerate]
     \1 \texttt{uniform}: $P(w_i \mid t_i) = \frac{1}{\#NER\_TAGs}$
     \1 \texttt{always\_other}: $P(w_i \mid \mathtt{O}) = 1$
-    \1 \texttt{other\_and\_misc}: $P(w_i \mid \mathtt{O}) = P(unknown \mid \mathtt{B\_MISC}) = 0.5$
+    \1 \texttt{other\_and\_misc}: $P(w_i \mid \mathtt{O}) = P(w_i \mid \mathtt{B\_MISC}) = 0.5$
     \1 \texttt{one\_shot\_word}: {$P(w_i \mid t_i) = \frac{C(w_i,t_i)}{\sum_{j \in len(T)}{C(w_j,t_j)}}$}
 \end{outline}
-Per l'implementazione di \texttt{one\_shot\_word} abbiamo utilizzato come dataset di riferimento il development set (\texttt{val.conllu}). Abbiamo popolato il dizionario \texttt{word\_tag\_counter}, per poi andare a calcolare per ogni tag $t_i$ la distribuzione delle probabilità di emissione di tutte le coppie ($w_i,t_i$) la cui occorrenza è pari a 1. Quindi, durante la computazione della matrice di emissione, ad ogni coppia ($w_i,t_i$) a cui non corrisponde nessuna coppia nel dizionario delle probabilità di emissione verrà assegnata la probabilità associata al tag calcolata rispetto alle parole con occorrenza singola.
+Per l'implementazione di \texttt{one\_shot\_word} abbiamo utilizzato come dataset di riferimento il development set (\texttt{val.conllu}). Abbiamo popolato il dizionario \texttt{word\_tag\_counter}, per poi andare a calcolare per ogni tag $t_i$ la distribuzione delle probabilità di emissione di tutte le coppie ($w_i,t_i$) la cui occorrenza è pari a 1. Quindi, durante la computazione della matrice di emissione, ad ogni parola sconosciuta verrà assegnata, per ciascun tag, la probabilità associata al tag calcolata rispetto alle parole con occorrenza singola.
 
 
 \chapter{Fase di Decoding}
@@ -48,7 +103,11 @@ Nella fase di decoding, per ogni frase viene rilevato l'insieme dei tag reali (r
 Nelle seguenti sezioni vengono discussi gli algoritmi di decoding implementati.
 
 \section{Most Frequent Tag (MFT)}
-L'algoritmo ``Most Frequent Tag'' è una delle baseline implementate e restituisce come predizione la lista di tag più frequenti rispetto a una data sequenza di parole in input. Nello specifico, ad ogni parola viene associato il tag con maggior probabilità ($P(w \mid t)$) rispetto alla matrice di emissione calcolata sul training set.
+L'algoritmo ``Most Frequent Tag'' è una delle baseline implementate e restituisce come predizione la lista di tag più frequenti rispetto a una data sequenza di parole in input, senza tenere conto del contesto. Nello specifico, ad ogni parola viene associato il tag con maggior probabilità $P(t \mid w)$. Per il teorema di Bayes $P(t \mid w) \propto P(w \mid t) \cdot P(t)$, perciò la predizione si ottiene sommando (in scala logaritmica) alla colonna della matrice di emissione il vettore \texttt{tag\_distrib}, contenente la probabilità a priori $P(t)$ di ciascun tag calcolata sul training set:
+\[
+\hat{t} = \arg\max_{t} \left[ \log P(w \mid t) + \log P(t) \right]
+\]
+Usare la sola $P(w \mid t)$ favorirebbe i tag rari: dividendo per il numero di occorrenze del tag, le probabilità di emissione del tag \texttt{O}, molto frequente, risulterebbero sistematicamente più basse.
 
 \section{Viterbi}
 L'implementazione dell'algoritmo di Viterbi segue da vicino quella vista a lezione, e fa uso di una matrice di Viterbi inizializzata a $-\infty$ (per via del passaggio ai logaritmi). È suddivisa in tre punti principali:
@@ -60,137 +119,229 @@ L'implementazione dell'algoritmo di Viterbi segue da vicino quella vista a lezio
 
 
 \chapter{Esperimenti}
-Di seguito vengono discussi alcuni esperimenti che abbiamo effettuato nel corso dell'esercitazione, con le relative osservazioni. Abbiamo eseguito entrambi gli algoritmi di decoding applicando le varie strategie di smoothing implementate.
+Di seguito vengono discussi alcuni esperimenti che abbiamo effettuato nel corso dell'esercitazione, con le relative osservazioni. Abbiamo eseguito entrambi gli algoritmi di decoding applicando le varie strategie di smoothing implementate, addestrando il modello sul training set italiano.
 
 Il primo esperimento è stato eseguito sulla frase ``La vera casa di Harry Potter è il castello di Hogwarts''.
 
-\begin{outline}
-    \begin{center}
-     \includegraphics[width=1\linewidth,trim={0cm 0cm 0cm 0cm}, clip]{img/reference-experiment-1.pdf}
-    \end{center}
-\end{outline}
- I risultati ottenuti sono i seguenti:
-\newline
-\newline
-\centerline{\textbf{Viterbi}}
-\begin{outline}
-    \begin{center}
-     \includegraphics[width=1\linewidth,trim={0cm 0cm 0cm 0cm}, clip]{img/experiment-1-viterbi.pdf}
-    \end{center}
-\end{outline}
+\begin{center}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{|l|l|l|l|l|l|l|l|l|l|l|l|l|}
+\hline
+\textbf{} & \textbf{La} & \textbf{vera} & \textbf{casa} & \textbf{di} & \textbf{Harry} & \textbf{Potter} & \textbf{è} & \textbf{il} & \textbf{castello} & \textbf{di} & \textbf{Hogwarts} & \textbf{.} \\ \hline
+\textbf{Reference} & O & O & O & O & B-MISC & I-MISC & O & O & O & O & B-MISC & O \\ \hline
+\end{tabular}
+\end{center}
 
-In assenza di tecniche di smoothing si ottiene una soluzione più accurata, in quanto la categorizzazione di ogni parola avviene con il giusto tag. Utilizzando le varie tecniche di smoothing si presentano associazioni errate di tag in modo sparso.
+I risultati ottenuti sono i seguenti:
 
-\newpage
+\begin{center}\textbf{Viterbi}\end{center}
+\begin{center}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{|l|l|l|l|l|l|l|l|l|l|l|l|l|}
+\hline
+\textbf{} & \textbf{La} & \textbf{vera} & \textbf{casa} & \textbf{di} & \textbf{Harry} & \textbf{Potter} & \textbf{è} & \textbf{il} & \textbf{castello} & \textbf{di} & \textbf{Hogwarts} & \textbf{.} \\ \hline
+\textbf{No-smoothing} & O & O & O & O & B-MISC & I-MISC & O & O & O & O & B-MISC & O \\ \hline
+\textbf{Uniform} & O & O & O & O & B-MISC & I-MISC & O & O & O & O & B-MISC & O \\ \hline
+\textbf{Always-other} & O & O & O & O & B-MISC & I-MISC & O & O & O & O & B-MISC & O \\ \hline
+\textbf{Other-and-Misc} & O & O & O & O & B-MISC & I-MISC & O & O & O & O & B-MISC & O \\ \hline
+\textbf{Oneshot-Word} & O & O & O & O & B-MISC & I-MISC & O & O & O & O & B-MISC & O \\ \hline
+\end{tabular}
+\end{center}
 
-\centerline{\textbf{MFT}}
-\begin{outline}
-    \begin{center}
-     \includegraphics[width=1\linewidth,trim={0cm 0cm 0cm 0cm}, clip]{img/experiment-1-mft.pdf}
-    \end{center}
-\end{outline}
- Analogamente, utilizzando la baseline (MFT) si hanno risultati errati sia in presenza di smoothing che in assenza.
- 
- In termini di accuracy abbiamo riscontrato i seguenti risultati:
-\begin{outline}
-    \begin{center}
-     \includegraphics[width=0.4\linewidth,trim={0cm 0cm 0cm 0cm}, clip]{img/experiment-1-resume.pdf}
-    \end{center}
-\end{outline}
+Viterbi assegna il tag corretto a ogni parola, indipendentemente dalla strategia di smoothing: tutte le parole della frase compaiono nel training set, quindi lo smoothing non entra in gioco.
+
+\begin{center}\textbf{MFT}\end{center}
+\begin{center}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{|l|l|l|l|l|l|l|l|l|l|l|l|l|}
+\hline
+\textbf{} & \textbf{La} & \textbf{vera} & \textbf{casa} & \textbf{di} & \textbf{Harry} & \textbf{Potter} & \textbf{è} & \textbf{il} & \textbf{castello} & \textbf{di} & \textbf{Hogwarts} & \textbf{.} \\ \hline
+\textbf{No-smoothing} & O & O & O & O & B-PER & I-MISC & O & O & O & O & B-MISC & O \\ \hline
+\textbf{Uniform} & O & O & O & O & B-PER & I-MISC & O & O & O & O & B-MISC & O \\ \hline
+\textbf{Always-other} & O & O & O & O & B-PER & I-MISC & O & O & O & O & B-MISC & O \\ \hline
+\textbf{Other-and-Misc} & O & O & O & O & B-PER & I-MISC & O & O & O & O & B-MISC & O \\ \hline
+\textbf{Oneshot-Word} & O & O & O & O & B-PER & I-MISC & O & O & O & O & B-MISC & O \\ \hline
+\end{tabular}
+\end{center}
+
+La baseline (MFT), non tenendo conto del contesto, sbaglia il tag di ``Harry'': da sola la parola è più frequentemente il nome di una persona (\texttt{B-PER}), mentre qui fa parte del titolo ``Harry Potter'' (\texttt{B-MISC}).
+In termini di accuracy abbiamo riscontrato i seguenti risultati:
+
+\begin{center}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{} & \textbf{Viterbi} & \textbf{MFT} \\ \hline
+\textbf{No-smoothing} & 1.00 & 0.92 \\ \hline
+\textbf{Uniform} & 1.00 & 0.92 \\ \hline
+\textbf{Always-other} & 1.00 & 0.92 \\ \hline
+\textbf{Other-and-Misc} & 1.00 & 0.92 \\ \hline
+\textbf{Oneshot-Word} & 1.00 & 0.92 \\ \hline
+\end{tabular}
+\end{center}
+
 Rispetto alla baseline implementata, le performance dell'algoritmo di Viterbi sono risultate migliori in tutti i casi.
-A giudicare dai risultati ottenuti, le tecniche di smoothing utilizzate non sono così accurate. Possiamo vedere che la tecnica di smoothing 'Always-other' ottiene le performance più elevate; questo è probabilmente dovuto dallo sbilanciamento del NER-tag di tipo 'Other' presente sia nel training-set che nel test-set.
-\newline
-\newline
-Di seguito riportiamo l'elenco degli ulteriori esperimenti effettuati con annessi risultati:
-\newline
-\newline
+
+Di seguito riportiamo l'elenco degli ulteriori esperimenti effettuati con annessi risultati.
+
 Secondo esperimento: ``Harry le raccontò del loro incontro a Diagon Alley.''
-\begin{outline}
-    \begin{center}
-     \includegraphics[width=1\linewidth,trim={0cm 0cm 0cm 0cm}, clip]{img/reference-experiment-2.pdf}
-    \end{center}
-\end{outline}
-\newline
-\newline
-\centerline{\textbf{Viterbi}}
-\begin{outline}
-    \begin{center}
-     \includegraphics[width=1\linewidth,trim={0cm 0cm 0cm 0cm}, clip]{img/experiment-2-viterbi.pdf}
-    \end{center}
-\end{outline}
-\newpage
-\centerline{\textbf{MFT}}
-\begin{outline}
-    \begin{center}
-     \includegraphics[width=1\linewidth,trim={0cm 0cm 0cm 0cm}, clip]{img/experiment-2-mft.pdf}
-    \end{center}
-\end{outline}
+
+\begin{center}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{|l|l|l|l|l|l|l|l|l|l|l|}
+\hline
+\textbf{} & \textbf{Harry} & \textbf{le} & \textbf{raccontò} & \textbf{del} & \textbf{loro} & \textbf{incontro} & \textbf{a} & \textbf{Diagon} & \textbf{Alley} & \textbf{.} \\ \hline
+\textbf{Reference} & B-MISC & O & O & O & O & O & O & B-LOC & I-LOC & O \\ \hline
+\end{tabular}
+\end{center}
+
+\begin{center}\textbf{Viterbi}\end{center}
+\begin{center}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{|l|l|l|l|l|l|l|l|l|l|l|}
+\hline
+\textbf{} & \textbf{Harry} & \textbf{le} & \textbf{raccontò} & \textbf{del} & \textbf{loro} & \textbf{incontro} & \textbf{a} & \textbf{Diagon} & \textbf{Alley} & \textbf{.} \\ \hline
+\textbf{No-smoothing} & B-PER & O & O & O & O & O & O & B-PER & I-PER & O \\ \hline
+\textbf{Uniform} & B-PER & O & O & O & O & O & O & B-PER & I-PER & O \\ \hline
+\textbf{Always-other} & B-PER & O & O & O & O & O & O & O & O & O \\ \hline
+\textbf{Other-and-Misc} & B-PER & O & O & O & O & O & O & B-MISC & I-PER & O \\ \hline
+\textbf{Oneshot-Word} & B-PER & O & O & O & O & O & O & B-PER & I-PER & O \\ \hline
+\end{tabular}
+\end{center}
+
+\begin{center}\textbf{MFT}\end{center}
+\begin{center}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{|l|l|l|l|l|l|l|l|l|l|l|}
+\hline
+\textbf{} & \textbf{Harry} & \textbf{le} & \textbf{raccontò} & \textbf{del} & \textbf{loro} & \textbf{incontro} & \textbf{a} & \textbf{Diagon} & \textbf{Alley} & \textbf{.} \\ \hline
+\textbf{No-smoothing} & B-PER & O & O & O & O & O & O & O & I-PER & O \\ \hline
+\textbf{Uniform} & B-PER & O & O & O & O & O & O & O & I-PER & O \\ \hline
+\textbf{Always-other} & B-PER & O & O & O & O & O & O & O & I-PER & O \\ \hline
+\textbf{Other-and-Misc} & B-PER & O & O & O & O & O & O & O & I-PER & O \\ \hline
+\textbf{Oneshot-Word} & B-PER & O & O & O & O & O & O & O & I-PER & O \\ \hline
+\end{tabular}
+\end{center}
+
+In questa frase ``Harry'' indica la persona, per cui il tag \texttt{B-PER} predetto da entrambi gli algoritmi è da considerarsi corretto, nonostante la reference riporti \texttt{B-MISC}. ``Diagon Alley'' invece non viene riconosciuto come luogo: ``Diagon'' è assente dal training set, mentre ``Alley'' vi compare soltanto con il tag \texttt{I-PER}; per questo, senza smoothing, Viterbi riconosce l'entità ma la classifica come persona.
+
 Terzo esperimento: ``Mr Dursley era direttore di una ditta di nome Grunnings, che fabbricava trapani.''
-\begin{outline}
-    \begin{center}
-     \includegraphics[width=1\linewidth,trim={0cm 0cm 0cm 0cm}, clip]{img/reference-experiment-3.pdf}
-    \end{center}
-\end{outline}
-\newline
-\newline
-\centerline{\textbf{Viterbi}}
-\begin{outline}
-    \begin{center}
-     \includegraphics[width=1\linewidth,trim={0cm 0cm 0cm 0cm}, clip]{img/experiment-3-viterbi.pdf}
-    \end{center}
-\end{outline}
-\centerline{\textbf{MFT}}
-\begin{outline}
-    \begin{center}
-     \includegraphics[width=1\linewidth,trim={0cm 0cm 0cm 0cm}, clip]{img/experiment-3-mft.pdf}
-    \end{center}
-\end{outline}
 
-\subsection{Test set : test.connlu}
-Abbiamo testato gli algoritmi di Viterbi e di baseline sul test-set italiano e inglese.
+\begin{center}
+\scriptsize
+\setlength{\tabcolsep}{1.5pt}
+\begin{tabular}{|l|l|l|l|l|l|l|l|l|l|l|l|l|l|l|l|}
+\hline
+\textbf{} & \textbf{Mr} & \textbf{Dursley} & \textbf{era} & \textbf{direttore} & \textbf{di} & \textbf{una} & \textbf{ditta} & \textbf{di} & \textbf{nome} & \textbf{Grunnings} & \textbf{,} & \textbf{che} & \textbf{fabbricava} & \textbf{trapani} & \textbf{.} \\ \hline
+\textbf{Reference} & B-MISC & I-MISC & O & O & O & O & O & O & O & B-ORG & O & O & O & O & O \\ \hline
+\end{tabular}
+\end{center}
 
-Le performance ottenute da Viterbi sono promettenti e si distinguono decisamente dalla baseline. Ciò indica che la fase di training è stata ottimale. Di seguito, riportiamo i risultati ottenuti:
+\begin{center}\textbf{Viterbi}\end{center}
+\begin{center}
+\scriptsize
+\setlength{\tabcolsep}{1.5pt}
+\begin{tabular}{|l|l|l|l|l|l|l|l|l|l|l|l|l|l|l|l|}
+\hline
+\textbf{} & \textbf{Mr} & \textbf{Dursley} & \textbf{era} & \textbf{direttore} & \textbf{di} & \textbf{una} & \textbf{ditta} & \textbf{di} & \textbf{nome} & \textbf{Grunnings} & \textbf{,} & \textbf{che} & \textbf{fabbricava} & \textbf{trapani} & \textbf{.} \\ \hline
+\textbf{No-smoothing} & B-MISC & I-MISC & O & O & O & O & O & O & O & O & O & O & O & O & O \\ \hline
+\textbf{Uniform} & B-MISC & I-MISC & O & O & O & O & O & O & O & O & O & O & O & O & O \\ \hline
+\textbf{Always-other} & B-MISC & O & O & O & O & O & O & O & O & O & O & O & O & O & O \\ \hline
+\textbf{Other-and-Misc} & B-MISC & O & O & O & O & O & O & O & O & O & O & O & O & O & O \\ \hline
+\textbf{Oneshot-Word} & B-MISC & O & O & O & O & O & O & O & O & O & O & O & O & O & O \\ \hline
+\end{tabular}
+\end{center}
+
+\begin{center}\textbf{MFT}\end{center}
+\begin{center}
+\scriptsize
+\setlength{\tabcolsep}{1.5pt}
+\begin{tabular}{|l|l|l|l|l|l|l|l|l|l|l|l|l|l|l|l|}
+\hline
+\textbf{} & \textbf{Mr} & \textbf{Dursley} & \textbf{era} & \textbf{direttore} & \textbf{di} & \textbf{una} & \textbf{ditta} & \textbf{di} & \textbf{nome} & \textbf{Grunnings} & \textbf{,} & \textbf{che} & \textbf{fabbricava} & \textbf{trapani} & \textbf{.} \\ \hline
+\textbf{No-smoothing} & B-MISC & O & O & O & O & O & O & O & O & O & O & O & O & O & O \\ \hline
+\textbf{Uniform} & B-MISC & O & O & O & O & O & O & O & O & O & O & O & O & O & O \\ \hline
+\textbf{Always-other} & B-MISC & O & O & O & O & O & O & O & O & O & O & O & O & O & O \\ \hline
+\textbf{Other-and-Misc} & B-MISC & O & O & O & O & O & O & O & O & O & O & O & O & O & O \\ \hline
+\textbf{Oneshot-Word} & B-MISC & O & O & O & O & O & O & O & O & O & O & O & O & O & O \\ \hline
+\end{tabular}
+\end{center}
+
+Nessuna configurazione riconosce ``Grunnings'', parola assente dal training set, come organizzazione. Senza smoothing (o con smoothing uniforme) Viterbi riconosce ``Mr Dursley'' come un'unica entità grazie alle transizioni, mentre con le altre strategie la parola sconosciuta ``Dursley'' riceve il tag \texttt{O}, spezzando l'entità.
+
+\section{Test set: test.conllu}
+Abbiamo testato gli algoritmi di Viterbi e di baseline sul test-set italiano e inglese, con tutte le strategie di smoothing. Le accuracy ottenute sono le seguenti:
+
+\begin{center}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{|l|l|l|l|l|}
+\hline
+\textbf{} & \textbf{Viterbi ENG} & \textbf{MFT ENG} & \textbf{Viterbi ITA} & \textbf{MFT ITA} \\ \hline
+\textbf{No-smoothing} & 96.31\% & 94.35\% & 97.44\% & 95.75\% \\ \hline
+\textbf{Uniform} & 96.31\% & 94.35\% & 97.44\% & 95.75\% \\ \hline
+\textbf{Always-other} & 95.73\% & 94.35\% & 97.06\% & 95.75\% \\ \hline
+\textbf{Other-and-Misc} & 95.77\% & 94.35\% & 97.06\% & 95.75\% \\ \hline
+\textbf{Oneshot-Word} & 95.94\% & 94.35\% & 97.13\% & 95.75\% \\ \hline
+\end{tabular}
+\end{center}
+
+Viterbi supera la baseline in tutte le configurazioni, di circa 1,5--2 punti percentuali. Lo smoothing invece non migliora le prestazioni: le parole sconosciute sono poche (circa il 3\% dei token del test set inglese) e la strategia uniforme equivale a non applicare smoothing, perché assegna la stessa probabilità a ogni tag e lascia decidere le sole transizioni. Sulla baseline lo smoothing non ha alcun effetto, perché per le parole sconosciute il tag predetto resta \texttt{O} in ogni caso.
+
+Va osservato che l'accuracy è fortemente influenzata dallo sbilanciamento delle classi: il tag \texttt{O} copre circa l'88\% dei token, per cui anche un sistema che predicesse sempre \texttt{O} otterrebbe un'accuracy simile. Per questo motivo riportiamo anche precision, recall e f1-score per ciascun tag, dai quali si osserva che sui tag delle entità le prestazioni sono sensibilmente più basse.
+
+Di seguito i risultati completi di Viterbi senza smoothing.
+
 \newpage
-
 \noindent Parametri:
 \begin{itemize}
  \item Algoritmo: Viterbi;
  \item Smoothing: None;
  \item Dataset: Inglese;
 \end{itemize}
-
+{\footnotesize
 \begin{alltt}
 Total words: 267155
-Accuracy: 96.32\%
+Accuracy: 96.31\%
 
 Classification Report
               precision    recall  f1-score   support
 
-           O       0.83      0.76      0.79      5955
-       I-LOC       0.72      0.64      0.68      4505
-      I-MISC       0.80      0.70      0.75      3449
-       I-ORG       0.89      0.78      0.83      5207
-       I-PER       0.86      0.75      0.80      2063
-       B-LOC       0.79      0.64      0.71      4897
-      B-MISC       0.82      0.76      0.79      2622
-       B-PER       0.91      0.84      0.87      3959
-       B-ORG       0.98      1.00      0.99    234498
+           O       0.98      1.00      0.99    234498
+       I-LOC       0.87      0.75      0.80      2063
+      I-MISC       0.79      0.64      0.71      4897
+       I-ORG       0.82      0.76      0.79      2622
+       I-PER       0.91      0.84      0.87      3959
+       B-LOC       0.83      0.76      0.79      5955
+      B-MISC       0.72      0.64      0.68      4505
+       B-PER       0.89      0.77      0.83      5207
+       B-ORG       0.80      0.70      0.75      3449
 
     accuracy                           0.96    267155
    macro avg       0.85      0.76      0.80    267155
 weighted avg       0.96      0.96      0.96    267155
 
-
 Confusion Matrix
-             O  I-LOC  I-MISC  I-ORG  I-PER  B-LOC  B-MISC  B-PER  B-ORG
-O       233468     41     283     98     79     99     230     76    124
-I-LOC      206   1541      55     89     43     92      15     14      8
-...
-B-LOC      955     47      27     18     30   4523     107     77    171
-B-MISC     946      7     244     14      7    177    2894    109    107
-B-PER      767      5      31      1     83    135     109   4037     39
-B-ORG      480      3      32     82      7    243     135     49   2418
+             O   I-LOC  I-MISC   I-ORG   I-PER   B-LOC  B-MISC   B-PER   B-ORG
+O       233491      37     272      97      77      98     228      74     124
+I-LOC      206    1541      55      89      43      92      15      14       8
+I-MISC     865      44    3110     112      61      91     499      55      60
+I-ORG      241      84     104    1983      33      56      22      13      86
+I-PER      428      13      47      10    3311      30       6     109       5
+B-LOC      955      43      26      17      30    4528     108      77     171
+B-MISC     951       7     238      14       7     178    2894     109     107
+B-PER      771       5      30       1      83     135     111    4032      39
+B-ORG      482       3      32      82       7     245     135      49    2414
 \end{alltt}
+}
+
 \newpage
 \noindent Parametri:
 \begin{itemize}
@@ -198,7 +349,7 @@ B-ORG      480      3      32     82      7    243     135     49   2418
  \item Smoothing: None;
  \item Dataset: Italiano;
 \end{itemize}
-
+{\footnotesize
 \begin{alltt}
 Total words: 313066
 Accuracy: 97.44\%
@@ -206,28 +357,32 @@ Accuracy: 97.44\%
 Classification Report
               precision    recall  f1-score   support
 
-           O       0.90      0.84      0.87      9788
-       I-LOC       0.81      0.66      0.73      2342
-      I-MISC       0.88      0.83      0.85      2229
-       I-ORG       0.95      0.86      0.91      8377
-       I-PER       0.85      0.73      0.79      3034
-       B-LOC       0.79      0.62      0.69      3331
-      B-MISC       0.89      0.75      0.81      1045
-       B-PER       0.94      0.89      0.91      7094
-       B-ORG       0.98      1.00      0.99    275826
+           O       0.98      1.00      0.99    275826
+       I-LOC       0.86      0.73      0.79      3034
+      I-MISC       0.79      0.62      0.69      3331
+       I-ORG       0.89      0.75      0.81      1045
+       I-PER       0.94      0.89      0.91      7094
+       B-LOC       0.90      0.83      0.87      9788
+      B-MISC       0.81      0.66      0.73      2342
+       B-PER       0.95      0.86      0.90      8377
+       B-ORG       0.88      0.83      0.85      2229
 
     accuracy                           0.97    313066
    macro avg       0.89      0.80      0.84    313066
 weighted avg       0.97      0.97      0.97    313066
 
-
 Confusion Matrix
-             O  I-LOC  I-MISC  I-ORG  I-PER  B-LOC  B-MISC  B-PER  B-ORG
-O       274857    163     315     16    105    196      78     73     23
-I-LOC      472   2206      48     22     70    165      15     32      4
-...
-B-LOC     1283     87      13      2     31   8174      34     60    104
-B-MISC     523      2      69      1      6     84    1543     57     57
-B-PER      729     26      22      0    146    105      65   7242     42
-B-ORG      205      1      19     10      5     65      60     19   1845
+             O   I-LOC  I-MISC   I-ORG   I-PER   B-LOC  B-MISC   B-PER   B-ORG
+O       274876     162     309      16     104     187      77      72      23
+I-LOC      472    2204      48      22      70     165      15      34       4
+I-MISC     888      45    2052      33      63     126      78      33      13
+I-ORG      139      26      47     781       7      29      11       1       4
+I-PER      476      25      25       9    6333      96      15     107       8
+B-LOC     1288      86      13       2      31    8170      34      60     104
+B-MISC     528       2      69       1       6      84    1538      57      57
+B-PER      730      26      22       0     146     107      65    7239      42
+B-ORG      206       1      19      10       5      65      59      19    1845
 \end{alltt}
+}
+
+\end{document}
