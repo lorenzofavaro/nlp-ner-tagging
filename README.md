@@ -9,6 +9,6 @@ Implemented a [NER Tagging](https://en.wikipedia.org/wiki/Named-entity_recogniti
 - Evaluate against an easy baseline and a difficult one
 
 ### Results
-96.32% accuracy for IT and 97.44% for ENG.
+97.44% accuracy for IT and 96.32% for ENG.
 
 For more details see the [report](https://github.com/lorenzofavaro/nlp-ner-tagging/blob/main/docs/report.pdf).
